@@ -1,0 +1,4 @@
+pki_store/**
+grades_db.json
+users_db.json
+__pycache__/**
