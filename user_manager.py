@@ -1,11 +1,13 @@
 import os
+import json
+import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.exceptions import InvalidKey
 
-# Simulación de la base de datos de usuarios
-# En un sistema real, esto estaría en una Base de Datos SQL o NoSQL, no creamos la base de datos ya que no se pide en el enunciado
+# Nombre del archivo para persistencia
+DB_FILE = "users_db.json"
 db_users = {}
 
 class UserSession:
@@ -15,13 +17,54 @@ class UserSession:
         self.role = role
         self.private_key = private_key
 
+def save_users_db():
+    """Serializa db_users a JSON, codificando bytes en Base64."""
+    data_to_save = {}
+    for username, data in db_users.items():
+        data_to_save[username] = {
+            'role': data['role'],
+            # Codificar bytes a string Base64 para JSON
+            'salt': base64.b64encode(data['salt']).decode('utf-8'),
+            'hash': base64.b64encode(data['hash']).decode('utf-8'),
+            'private_key_pem': base64.b64encode(data['private_key_pem']).decode('utf-8'),
+            'public_key_pem': base64.b64encode(data['public_key_pem']).decode('utf-8')
+        }
+    
+    try:
+        with open(DB_FILE, 'w') as f:
+            json.dump(data_to_save, f, indent=4)
+    except IOError as e:
+        print(f"ERROR CRÍTICO: No se pudo guardar la base de datos de usuarios: {e}")
+
+def load_users_db():
+    """Carga usuarios desde JSON, decodificando Base64 a bytes."""
+    global db_users
+    if not os.path.exists(DB_FILE):
+        return
+
+    try:
+        with open(DB_FILE, 'r') as f:
+            data_loaded = json.load(f)
+            
+        for username, data in data_loaded.items():
+            db_users[username] = {
+                'role': data['role'],
+                # Decodificar string Base64 a bytes
+                'salt': base64.b64decode(data['salt']),
+                'hash': base64.b64decode(data['hash']),
+                'private_key_pem': base64.b64decode(data['private_key_pem']),
+                'public_key_pem': base64.b64decode(data['public_key_pem'])
+            }
+        print(f"INFO: Base de datos de usuarios cargada ({len(db_users)} usuarios).")
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"ERROR: No se pudo cargar la base de datos de usuarios: {e}")
+
+# Cargar datos al importar el módulo
+load_users_db()
+
 def register_user(username, password, role):
     """
-    Registra un nuevo usuario (profesor o alumno).
-    Genera un salt y hashea la contraseña con Scrypt.
-    Genera un par de claves RSA (2048 bits).
-    Cifra la clave privada usando la contraseña del usuario.
-    Almacena salt, hash, rol, clave privada cifrada y clave pública.
+    Registra un nuevo usuario y guarda los cambios en disco.
     """
     if username in db_users:
         raise ValueError("El nombre de usuario ya existe.")
@@ -36,7 +79,7 @@ def register_user(username, password, role):
     # Generación de claves Asimétricas (RSA)
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=2048, # Longitud apropiada
+        key_size=2048, 
     )
     public_key = private_key.public_key()
     
@@ -47,13 +90,13 @@ def register_user(username, password, role):
         encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
     )
     
-    # Serializar la clave pública (no necesita protección)
+    # Serializar la clave pública
     public_key_pem = public_key.public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
     
-    # Almacenar en la base de datos
+    # Almacenar en memoria
     db_users[username] = {
         'salt': salt,
         'hash': password_hash,
@@ -61,14 +104,15 @@ def register_user(username, password, role):
         'private_key_pem': private_key_pem,
         'public_key_pem': public_key_pem
     }
-    print(f"INFO: Usuario '{username}' registrado con éxito.")
+    
+    # Guardar en archivo
+    save_users_db()
+    
+    print(f"INFO: Usuario '{username}' registrado y guardado con éxito.")
 
 def login_user(username, password):
     """
-    Autentica a un usuario y descifra su clave privada.
-    Verifica el hash de la contraseña usando Scrypt.
-    Si es correcto, usa la contraseña para descifrar la clave privada.
-    Devuelve una sesión de usuario con la clave privada en memoria.
+    Autentica a un usuario usando los datos cargados en memoria.
     """
     if username not in db_users:
         raise ValueError("Usuario no encontrado.")
@@ -90,18 +134,13 @@ def login_user(username, password):
             password=password.encode()
         )
     except (TypeError, ValueError):
-        # Esto podría pasar si la contraseña es correcta para Scrypt pero incorrecta para la librería de descifrado
-        # Lo cubrimos aunque sea algo raro
         print(f"ERROR: Fallo al descifrar la clave privada de '{username}'.")
         raise ValueError("Autenticación fallida: no se pudo cargar la clave.")
         
     print(f"INFO: Login exitoso para '{username}'.")
-    
-    # Se crea la sesión de usuario
     return UserSession(username, user_data['role'], private_key)
 
 def get_public_key_pem(username):
-    """Obtiene la clave pública de un usuario (para cifrar datos para él)."""
     if username not in db_users:
         raise ValueError("Usuario no encontrado.")
     return db_users[username]['public_key_pem']
