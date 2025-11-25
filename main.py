@@ -1,62 +1,92 @@
+import os
+import shutil
 import user_manager
 import grade_system
 
+def reset_system():
+    """
+    Borra la base de datos y la PKI para iniciar una simulación limpia.
+    """
+    files_to_remove = ["users_db.json", "grades_db.json"]
+    dirs_to_remove = ["pki_store"]
+    
+    print("--- LIMPIEZA DE ENTORNO (RESET) ---")
+    
+    # 1. Limpiar Disco
+    for f in files_to_remove:
+        if os.path.exists(f):
+            os.remove(f)
+            print(f"Eliminado: {f}")
+            
+    for d in dirs_to_remove:
+        if os.path.exists(d):
+            shutil.rmtree(d)
+            print(f"Eliminado directorio: {d}")
+
+    # 2. Limpiar Memoria RAM
+    user_manager.db_users = {}
+    grade_system.db_grades = {}
+    print("Memoria de módulos purgada.")
+    
+    print("-----------------------------------")
+
 def run_simulation():
     """
-    Ejecuta una simulación completa del flujo de la aplicación.
-    Prueba el registro, login y las operaciones criptográficas.
+    Ejecuta una simulación completa del flujo de la aplicación con PKI y Persistencia.
     """
-    print("-> INICIO DE LA SIMULACIÓN DEL SISTEMA DE CALIFICACIONES")
+    # 1. Limpiar entorno previo para demostrar la creación de la PKI
+    reset_system()
 
-    # Esto es el registro de usuarios, tanto alumno como profesor
+    print("-> INICIO DE LA SIMULACIÓN (EVAL 2: PKI + FIRMA DIGITAL)")
+
+    # 2. Registro (Aquí se verá la emisión de certificados X.509)
+    print("\n[!] Registrando usuarios en la Autoridad de Certificación...")
     try:
         user_manager.register_user("Jose Maria de Fuentes", "PassProfesor123!", "profesor")
         user_manager.register_user("Adam Kowalczyk", "PassAlumno456!", "alumno")
     except ValueError as e:
         print(f"ERROR: fallo de registro {e}")
 
-    # El profesor añade la note
-    print("\n-> Intento de Login (Profesor)")
+    # 3. Flujo del Profesor (Firma y Cifrado)
+    print("\n-> Intento de Login y Calificación (Profesor)")
     try:
-        # El profesor inicia sesión
+        # Login (carga certificado y clave privada)
         profesor_session = user_manager.login_user("Jose Maria de Fuentes", "PassProfesor123!")
         
-        # El profesor añade notas
+        # Añadir notas (Firma Digital RSA-PSS + Cifrado Híbrido)
         grade_system.add_grade(profesor_session, "Adam Kowalczyk", "Criptografía", "9.5 (Sobresaliente)")
         grade_system.add_grade(profesor_session, "Adam Kowalczyk", "Redes", "7.2 (Notable)")
         
-    except ValueError as e:
+    except Exception as e:
         print(f"Fallo en el flujo del profesor: {e}")
 
-    # El alumno intenta iniciar sesión y mirar sus notas
-    print("\n-> Intento de Login (Alumno)")
+    # 4. Flujo del Alumno (Verificación de Firma y PKI)
+    print("\n-> Intento de Login y Consulta (Alumno)")
     try:
-        # El alumno inicia sesión
+        # Login
         alumno_session = user_manager.login_user("Adam Kowalczyk", "PassAlumno456!")
         
-        # El alumno ve sus notas
+        # Ver notas (Validación de Certificados y Firmas)
         grade_system.view_my_grades(alumno_session)
         
-    except ValueError as e:
+    except Exception as e:
         print(f"Fallo en el flujo del alumno: {e}")
 
-    # Probamos como sería un fallo de contraseña incorrecta
-    print("\n-> Prueba de Login (Contraseña incorrecta)")
+    # 5. Pruebas de Seguridad (Errores esperados)
+    print("\n-> Prueba de Seguridad: Login con contraseña incorrecta")
     try:
         user_manager.login_user("Adam Kowalczyk", "contraseña_erronea")
     except ValueError as e:
-        print(f"Prueba exitosa: El login falló como se esperaba. ({e})")
+        print(f"  [OK] El sistema bloqueó el acceso: {e}")
 
-    # Probamos como sería un fallo de falta de permisos de parte del alumno
-    print("\n-> Prueba de Permisos (Alumno intenta añadir nota)")
+    print("\n-> Prueba de Seguridad: Alumno intenta firmar nota (Falsificación)")
     try:
-        # Re-login del alumno para tener una sesión válida
         alumno_session_fail = user_manager.login_user("Adam Kowalczyk", "PassAlumno456!")
-        grade_system.add_grade(alumno_session_fail, "Jose Maria de Fuentes", "Fallo", "0.0")
+        grade_system.add_grade(alumno_session_fail, "Jose Maria de Fuentes", "Hackeo", "10.0")
     except PermissionError as e:
-        print(f"Prueba exitosa: La acción fue denegada como se esperaba. ({e})")
-    except ValueError as e:
-        print(f"Fallo en prueba de permisos: {e}")
+        print(f"  [OK] El sistema denegó la acción: {e}")
+    except Exception as e:
+        print(f"Fallo inesperado: {e}")
         
     print("\nFIN DE LA SIMULACIÓN")
 
