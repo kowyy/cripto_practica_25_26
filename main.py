@@ -37,7 +37,7 @@ def run_simulation():
     # 1. Limpiar entorno previo para demostrar la creación de la PKI
     reset_system()
 
-    print("-> INICIO DE LA SIMULACIÓN (EVAL 2: PKI + FIRMA DIGITAL)")
+    print("-> INICIO DE LA SIMULACIÓN")
 
     # 2. Registro (Aquí se verá la emisión de certificados X.509)
     print("\n[!] Registrando usuarios en la Autoridad de Certificación...")

@@ -20,6 +20,7 @@ def ensure_pki_dir_exists():
 
 def generate_private_key():
     """Genera una clave privada RSA de 2048 bits."""
+    print("DEBUG [PKI]: Generando par de claves RSA. Longitud: 2048 bits (Estándar NIST actual).")
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 def save_key(key, filename):
@@ -57,14 +58,14 @@ def load_cert(filename):
 def setup_pki():
     """
     Inicializa la infraestructura de clave pública (PKI).
-    Crea una Root CA autofirmada y una Sub CA firmada por la Root.
     """
-    ensure_pki_dir_exists() # <--- IMPORTANTE: Asegurar directorio aquí
+    ensure_pki_dir_exists() 
 
     if os.path.exists(ROOT_CERT_FILE) and os.path.exists(SUB_CERT_FILE):
         return
 
     # 1. Crear Root CA
+    print("INFO: Creando Autoridad de Certificación Raíz...")
     root_key = generate_private_key()
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
@@ -92,6 +93,7 @@ def setup_pki():
     save_cert(root_cert, ROOT_CERT_FILE)
 
     # 2. Crear Sub CA (Authority)
+    print("INFO: Creando Autoridad de Certificación Subordinada...")
     sub_key = generate_private_key()
     sub_subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
@@ -122,7 +124,7 @@ def issue_user_certificate(user_public_key, username, role):
     """
     Emite un certificado X.509 para un usuario, firmado por la Sub CA.
     """
-    setup_pki() # Se asegura de que la PKI exista
+    setup_pki()
     
     sub_key = load_key(SUB_KEY_FILE)
     sub_cert = load_cert(SUB_CERT_FILE)
@@ -154,7 +156,7 @@ def issue_user_certificate(user_public_key, username, role):
 
 def verify_certificate(cert_pem):
     """
-    Verifica criptográficamente la firma de un certificado de usuario usando la clave pública de la Sub CA.
+    Verifica criptográficamente la firma de un certificado.
     """
     try:
         user_cert = x509.load_pem_x509_certificate(cert_pem)

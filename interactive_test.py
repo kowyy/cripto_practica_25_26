@@ -63,7 +63,7 @@ def handle_modify_grade(prof_session):
 
 def run_interactive_session():
     session = None
-    print("=== SISTEMA DE NOTAS SEGURO (EVAL 2) ===")
+    print("=== SISTEMA DE NOTAS SEGURO ===")
 
     while True:
         if not session:

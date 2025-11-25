@@ -1,5 +1,5 @@
 import os
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag, InvalidSignature
@@ -9,6 +9,8 @@ def sign_data(data_bytes, private_key):
     """
     Genera una firma digital utilizando RSA-PSS.
     """
+    print(f"DEBUG [Cripto]: Generando firma digital. Algoritmo: RSA-PSS (SHA-256). Longitud Clave: {private_key.key_size} bits.")
+    
     signature = private_key.sign(
         data_bytes,
         padding.PSS(
@@ -22,7 +24,10 @@ def sign_data(data_bytes, private_key):
 def verify_signature(data_bytes, signature, public_key):
     """
     Verifica una firma digital RSA-PSS.
+    Devuelve True si es válida, False en caso contrario.
     """
+    print(f"DEBUG [Cripto]: Verificando firma digital. Algoritmo: RSA-PSS (SHA-256). Longitud Clave Pública: {public_key.key_size} bits.")
+    
     try:
         public_key.verify(
             signature,
@@ -33,8 +38,10 @@ def verify_signature(data_bytes, signature, public_key):
             ),
             hashes.SHA256()
         )
+        print("DEBUG [Cripto]: Resultado verificación -> VÁLIDA.")
         return True
     except InvalidSignature:
+        print("DEBUG [Cripto]: Resultado verificación -> INVÁLIDA.")
         return False
 
 def get_public_key_from_cert(cert_pem):
@@ -45,16 +52,12 @@ def get_public_key_from_cert(cert_pem):
 def encrypt_grade_hybrid_two_parties(grade_data_str, student_cert_pem, prof_cert_pem):
     """
     Cifra la calificación para DOS destinatarios: el alumno y el profesor.
-    1. Genera una clave simétrica (AES) aleatoria.
-    2. Cifra los datos con AES.
-    3. Cifra la clave AES con la pública del alumno.
-    4. Cifra la clave AES con la pública del profesor.
-    Devuelve los datos cifrados y ambas llaves cifradas.
     """
     student_pub_key = get_public_key_from_cert(student_cert_pem)
     prof_pub_key = get_public_key_from_cert(prof_cert_pem)
     
     # Clave simétrica efímera
+    print("DEBUG [Cripto]: Generando clave simétrica AES-GCM (256 bits).")
     sym_key = AESGCM.generate_key(bit_length=256)
     aesgcm = AESGCM(sym_key)
     nonce = os.urandom(12)
@@ -67,6 +70,7 @@ def encrypt_grade_hybrid_two_parties(grade_data_str, student_cert_pem, prof_cert
     )
     
     # Cifrado de la clave simétrica para el Alumno (Asimétrico)
+    print(f"DEBUG [Cripto]: Cifrando clave de sesión para Alumno. Algoritmo: RSA-OAEP. Longitud: {student_pub_key.key_size} bits.")
     enc_key_student = student_pub_key.encrypt(
         sym_key,
         padding.OAEP(
@@ -77,7 +81,7 @@ def encrypt_grade_hybrid_two_parties(grade_data_str, student_cert_pem, prof_cert
     )
 
     # Cifrado de la clave simétrica para el Profesor (Asimétrico)
-    # Esto permite que el profesor recupere la nota después
+    print(f"DEBUG [Cripto]: Cifrando clave de sesión para Profesor. Algoritmo: RSA-OAEP. Longitud: {prof_pub_key.key_size} bits.")
     enc_key_prof = prof_pub_key.encrypt(
         sym_key,
         padding.OAEP(
@@ -92,9 +96,8 @@ def encrypt_grade_hybrid_two_parties(grade_data_str, student_cert_pem, prof_cert
 def decrypt_grade_hybrid(encrypted_grade, encrypted_sym_key, nonce, private_key):
     """
     Descifra la calificación usando la clave privada proporcionada.
-    Sirve tanto para el alumno como para el profesor, siempre que pasen
-    su versión correspondiente de la 'encrypted_sym_key'.
     """
+    # Descifrado de la clave simétrica
     try:
         sym_key = private_key.decrypt(
             encrypted_sym_key,
@@ -109,12 +112,14 @@ def decrypt_grade_hybrid(encrypted_grade, encrypted_sym_key, nonce, private_key)
 
     aesgcm = AESGCM(sym_key)
     
+    # Descifrado de los datos
     try:
         decrypted_data_bytes = aesgcm.decrypt(
             nonce,
             encrypted_grade,
             None
         )
+        print("DEBUG [Cripto]: Descifrado AES-GCM (256 bits) correcto. Integridad verificada.")
         return decrypted_data_bytes.decode('utf-8')
     except InvalidTag:
         raise ValueError("Integridad comprometida: Tag de autenticación inválido.")

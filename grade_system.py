@@ -17,8 +17,8 @@ def save_grades_db():
         for (enc_grade, enc_key_s, enc_key_p, nonce, signature, signer) in grades_list:
             serializable_list.append({
                 'enc_grade': base64.b64encode(enc_grade).decode('utf-8'),
-                'enc_key_s': base64.b64encode(enc_key_s).decode('utf-8'), # Para el alumno
-                'enc_key_p': base64.b64encode(enc_key_p).decode('utf-8'), # Para el profesor
+                'enc_key_s': base64.b64encode(enc_key_s).decode('utf-8'), 
+                'enc_key_p': base64.b64encode(enc_key_p).decode('utf-8'), 
                 'nonce': base64.b64encode(nonce).decode('utf-8'),
                 'signature': base64.b64encode(signature).decode('utf-8'),
                 'signer': signer
@@ -44,7 +44,6 @@ def load_grades_db():
         for username, grades_list_raw in data_loaded.items():
             restored_list = []
             for item in grades_list_raw:
-                # Soporte para formato nuevo con dos claves
                 if 'enc_key_p' in item:
                     restored_list.append((
                         base64.b64decode(item['enc_grade']),
@@ -63,6 +62,7 @@ load_grades_db()
 def add_grade(professor_session, student_username, subject, grade):
     """
     Añade una nota cifrada para el alumno Y para el profesor.
+    Firma digitalmente la nota para asegurar autenticidad.
     """
     if professor_session.role != 'profesor':
         raise PermissionError("Solo profesores pueden añadir notas.")
@@ -85,7 +85,6 @@ def add_grade(professor_session, student_username, subject, grade):
     )
     
     # 2. Cifrar (Confidencialidad Dual)
-    # Usamos el certificado del profesor (de su sesión) para que él también pueda leerlo
     enc_grade, enc_key_s, enc_key_p, nonce = \
         crypto_manager.encrypt_grade_hybrid_two_parties(
             grade_data_str, 
@@ -96,19 +95,16 @@ def add_grade(professor_session, student_username, subject, grade):
     if student_username not in db_grades:
         db_grades[student_username] = []
         
-    # Guardamos ambas claves cifradas
     db_grades[student_username].append(
         (enc_grade, enc_key_s, enc_key_p, nonce, signature, professor_session.username)
     )
     
     save_grades_db()
-    print(f"Nota guardada y cifrada (accesible para Alumno y Profesor).")
+    print(f"Nota guardada firmada y cifrada para '{student_username}'.")
 
 def view_grades_professor(professor_session, student_username):
     """
-    Permite al profesor ver las notas que ÉL ha puesto a un alumno específico.
-    Utiliza la copia de la clave cifrada para el profesor.
-    Devuelve una lista de tuplas (índice, contenido_descifrado).
+    Permite al profesor ver las notas que ÉL ha puesto a un alumno.
     """
     if professor_session.role != 'profesor':
         raise PermissionError("Acceso denegado.")
@@ -117,17 +113,14 @@ def view_grades_professor(professor_session, student_username):
         print(f"No hay registros para {student_username}.")
         return []
 
-    print(f"\n--- Notas de {student_username} creadas por ti ---")
+    print(f"\n--- Notas de {student_username} (Vista Profesor) ---")
     visible_grades = []
     
     for i, entry in enumerate(db_grades[student_username]):
-        # Desempaquetar
         (enc_grade, _, enc_key_p, nonce, _, signer) = entry
         
-        # Solo mostramos las notas firmadas por este profesor
         if signer == professor_session.username:
             try:
-                # Desciframos usando la clave privada del PROFESOR y su versión de la clave simétrica
                 grade_str = crypto_manager.decrypt_grade_hybrid(
                     enc_grade, enc_key_p, nonce, professor_session.private_key
                 )
@@ -140,8 +133,7 @@ def view_grades_professor(professor_session, student_username):
 
 def modify_grade(professor_session, student_username, index, new_grade_str):
     """
-    Modifica una nota existente.
-    Requiere re-firmar y re-cifrar todo el bloque con los nuevos datos.
+    Modifica una nota existente. Re-firma y re-cifra.
     """
     if professor_session.role != 'profesor':
         raise PermissionError("No autorizado.")
@@ -149,12 +141,10 @@ def modify_grade(professor_session, student_username, index, new_grade_str):
     if student_username not in db_grades or index >= len(db_grades[student_username]):
         raise ValueError("Nota no encontrada.")
 
-    # Verificar que la nota pertenece a este profesor antes de tocarla
     existing_entry = db_grades[student_username][index]
-    if existing_entry[5] != professor_session.username: # índice 5 es 'signer'
+    if existing_entry[5] != professor_session.username: 
         raise PermissionError("No puedes modificar una nota que no creaste.")
 
-    # Obtener certificado del alumno para re-cifrar
     try:
         student_cert_pem = user_manager.get_user_certificate(student_username)
     except ValueError:
@@ -177,17 +167,16 @@ def modify_grade(professor_session, student_username, index, new_grade_str):
             professor_session.certificate_pem
         )
 
-    # 3. Reemplazo atómico en la lista
     db_grades[student_username][index] = (
         enc_grade, enc_key_s, enc_key_p, nonce, signature, professor_session.username
     )
     
     save_grades_db()
-    print("Nota modificada exitosamente.")
+    print("Nota modificada y refirmada exitosamente.")
 
 def view_my_grades(student_session):
     """
-    Vista del alumno: usa su clave privada y su versión de la clave simétrica (enc_key_s).
+    Vista del alumno: Descifra y VERIFICA la firma digital.
     """
     if student_session.role != 'alumno':
         raise PermissionError("Solo alumnos.")
@@ -207,6 +196,7 @@ def view_my_grades(student_session):
             )
             
             # 2. Validar Firma
+            # Recuperamos clave pública del firmante desde su certificado
             signer_cert = user_manager.get_user_certificate(signer)
             signer_pub = crypto_manager.get_public_key_from_cert(signer_cert)
             

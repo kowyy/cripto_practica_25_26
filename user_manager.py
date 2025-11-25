@@ -2,10 +2,8 @@ import os
 import json
 import base64
 import pki_manager 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa # Corregido import
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.exceptions import InvalidKey
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import rsa 
 
 DB_FILE = "users_db.json"
 db_users = {}
@@ -26,7 +24,6 @@ def save_users_db():
             'salt': base64.b64encode(data['salt']).decode('utf-8'),
             'hash': base64.b64encode(data['hash']).decode('utf-8'),
             'private_key_pem': base64.b64encode(data['private_key_pem']).decode('utf-8'),
-            # Guardamos el certificado en lugar de la clave pública raw
             'certificate_pem': base64.b64encode(data['certificate_pem']).decode('utf-8')
         }
     
@@ -55,28 +52,34 @@ def load_users_db():
                 'certificate_pem': base64.b64decode(data['certificate_pem'])
             }
     except Exception as e:
-        print(f"Aviso: No se pudo cargar DB usuarios (puede estar vacía o corrupta): {e}")
+        print(f"Aviso: No se pudo cargar DB usuarios: {e}")
 
 # Cargar al inicio
 load_users_db()
 
 def register_user(username, password, role):
     """
-    Registra usuario, genera par de claves y solicita un CERTIFICADO a la PKI.
+    Registra usuario usando SHA-256 + Salt para la autenticación.
     """
     if username in db_users:
         raise ValueError("El usuario ya existe.")
     
-    # 1. Derivación de clave para proteger la clave privada (Scrypt)
+    # 1. Hashing de contraseña (SHA-256 + Salt)
+    # Generamos un salt aleatorio de 16 bytes
     salt = os.urandom(16)
-    kdf = Scrypt(salt=salt, length=32, n=2**14, r=8, p=1)
-    password_hash = kdf.derive(password.encode())
     
-    # 2. Generar par de claves RSA
+    # Creamos el hash combinando salt y password
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(salt)              # Añadimos el salt
+    digest.update(password.encode()) # Añadimos la password
+    password_hash = digest.finalize()
+    
+    # 2. Generar par de claves RSA (2048 bits)
+    print(f"DEBUG [User Manager]: Generando claves RSA-2048 para {username}.")
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_key = private_key.public_key()
     
-    # 3. Solicitar emisión de certificado a la CA (PKI)
+    # 3. Solicitar emisión de certificado a la PKI
     certificate_pem = pki_manager.issue_user_certificate(public_key, username, role)
     
     # 4. Cifrar clave privada para almacenamiento seguro
@@ -95,7 +98,7 @@ def register_user(username, password, role):
     }
     
     save_users_db()
-    print(f"Usuario '{username}' registrado y certificado emitido.")
+    print(f"Usuario '{username}' registrado (Auth: SHA-256).")
 
 def login_user(username, password):
     if username not in db_users:
@@ -103,21 +106,28 @@ def login_user(username, password):
     
     user_data = db_users[username]
     
-    # Verificar contraseña
-    kdf = Scrypt(salt=user_data['salt'], length=32, n=2**14, r=8, p=1)
-    try:
-        kdf.verify(password.encode(), user_data['hash'])
-    except InvalidKey:
-        raise ValueError("Credenciales inválidas.")
+    # 1. Verificar contraseña usando SHA-256 + Salt almacenado
+    salt = user_data['salt']
+    stored_hash = user_data['hash']
     
-    # Descifrar clave privada
+    # Recomputamos el hash con el salt guardado y la password introducida
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(salt)
+    digest.update(password.encode())
+    computed_hash = digest.finalize()
+    
+    # Comprobación de bytes
+    if computed_hash != stored_hash:
+        raise ValueError("Credenciales inválidas (Password incorrecta).")
+    
+    # 2. Descifrar clave privada
     try:
         private_key = serialization.load_pem_private_key(
             user_data['private_key_pem'],
             password=password.encode()
         )
     except ValueError:
-        raise ValueError("Error interno descifrando clave privada.")
+        raise ValueError("Error interno: La contraseña es válida para login pero no descifra la clave privada.")
         
     return UserSession(username, user_data['role'], private_key, user_data['certificate_pem'])
 
