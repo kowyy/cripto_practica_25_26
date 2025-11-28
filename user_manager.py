@@ -59,19 +59,19 @@ load_users_db()
 
 def register_user(username, password, role):
     """
-    Registra usuario usando SHA-256 + Salt para la autenticación.
+    Registra usuario usando SHA-256 + Salt.
     """
+    if role not in ['profesor', 'alumno']:
+        raise ValueError(f"Rol '{role}' no válido. Solo se permite 'profesor' o 'alumno'.")
+        
     if username in db_users:
         raise ValueError("El usuario ya existe.")
     
     # 1. Hashing de contraseña (SHA-256 + Salt)
-    # Generamos un salt aleatorio de 16 bytes
     salt = os.urandom(16)
-    
-    # Creamos el hash combinando salt y password
     digest = hashes.Hash(hashes.SHA256())
-    digest.update(salt)              # Añadimos el salt
-    digest.update(password.encode()) # Añadimos la password
+    digest.update(salt)              
+    digest.update(password.encode()) 
     password_hash = digest.finalize()
     
     # 2. Generar par de claves RSA (2048 bits)
@@ -82,7 +82,7 @@ def register_user(username, password, role):
     # 3. Solicitar emisión de certificado a la PKI
     certificate_pem = pki_manager.issue_user_certificate(public_key, username, role)
     
-    # 4. Cifrar clave privada para almacenamiento seguro
+    # 4. Cifrar clave privada
     private_key_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -98,7 +98,7 @@ def register_user(username, password, role):
     }
     
     save_users_db()
-    print(f"Usuario '{username}' registrado (Auth: SHA-256).")
+    print(f"Usuario '{username}' registrado correctamente (Rol: {role}).")
 
 def login_user(username, password):
     if username not in db_users:
@@ -106,17 +106,15 @@ def login_user(username, password):
     
     user_data = db_users[username]
     
-    # 1. Verificar contraseña usando SHA-256 + Salt almacenado
+    # 1. Verificar contraseña
     salt = user_data['salt']
     stored_hash = user_data['hash']
     
-    # Recomputamos el hash con el salt guardado y la password introducida
     digest = hashes.Hash(hashes.SHA256())
     digest.update(salt)
     digest.update(password.encode())
     computed_hash = digest.finalize()
     
-    # Comprobación de bytes
     if computed_hash != stored_hash:
         raise ValueError("Credenciales inválidas (Password incorrecta).")
     
@@ -127,7 +125,7 @@ def login_user(username, password):
             password=password.encode()
         )
     except ValueError:
-        raise ValueError("Error interno: La contraseña es válida para login pero no descifra la clave privada.")
+        raise ValueError("Error interno: Fallo al descifrar clave privada.")
         
     return UserSession(username, user_data['role'], private_key, user_data['certificate_pem'])
 
@@ -135,3 +133,14 @@ def get_user_certificate(username):
     if username not in db_users:
         raise ValueError("Usuario no existe.")
     return db_users[username]['certificate_pem']
+
+def delete_user(username):
+    """
+    Elimina un usuario de la base de datos.
+    """
+    if username not in db_users:
+        raise ValueError("El usuario no existe.")
+    
+    del db_users[username]
+    save_users_db()
+    print(f"INFO: Usuario '{username}' eliminado del sistema.")

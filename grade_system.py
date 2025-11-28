@@ -210,3 +210,47 @@ def view_my_grades(student_session):
             
         except Exception as e:
             print(f"{i+1}. Error de lectura: {e}")
+
+def delete_grade(professor_session, student_username, index):
+    """
+    Elimina una calificación específica.
+    Verifica que el usuario sea profesor y sea el autor de la nota.
+    """
+    if professor_session.role != 'profesor':
+        raise PermissionError("Acción no autorizada. Solo profesores.")
+        
+    if student_username not in db_grades:
+        raise ValueError(f"El alumno {student_username} no tiene notas registradas.")
+        
+    if index < 0 or index >= len(db_grades[student_username]):
+        raise ValueError("Índice de nota inválido.")
+
+    # Verificar propiedad de la nota (el índice 5 es el 'signer')
+    entry = db_grades[student_username][index]
+    signer_username = entry[5]
+    
+    if signer_username != professor_session.username:
+        raise PermissionError("No puedes borrar una nota que no has creado tú.")
+
+    # Eliminar la nota de la lista
+    deleted_entry = db_grades[student_username].pop(index)
+    
+    # Si la lista queda vacía, podemos borrar la clave del alumno (opcional)
+    if not db_grades[student_username]:
+        del db_grades[student_username]
+        
+    save_grades_db()
+    print(f"INFO: Nota eliminada correctamente.")
+
+def delete_all_grades_of_student(student_username):
+    """
+    Borra todas las calificaciones asociadas a un alumno.
+    Esta función se llama cuando se da de baja a un usuario.
+    """
+    if student_username in db_grades:
+        del db_grades[student_username]
+        save_grades_db()
+        print(f"INFO: Historial de calificaciones de '{student_username}' purgado del sistema.")
+    else:
+        # Si no tenía notas o era un profesor, no pasa nada
+        pass
