@@ -1,87 +1,100 @@
 import os
+import json
 import datetime
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
-# Directorio para almacenar las claves de las CAs
 PKI_DIR = "pki_store"
 ROOT_KEY_FILE = os.path.join(PKI_DIR, "root_ca_key.pem")
 ROOT_CERT_FILE = os.path.join(PKI_DIR, "root_ca_cert.pem")
 SUB_KEY_FILE = os.path.join(PKI_DIR, "sub_ca_key.pem")
 SUB_CERT_FILE = os.path.join(PKI_DIR, "sub_ca_cert.pem")
+CRL_FILE = os.path.join(PKI_DIR, "crl.json") # Lista de Revocación simulada
 
 def ensure_pki_dir_exists():
-    """Asegura que el directorio PKI existe antes de escribir nada."""
     if not os.path.exists(PKI_DIR):
         os.makedirs(PKI_DIR)
-        print(f"DEBUG: Directorio {PKI_DIR} creado.")
 
 def generate_private_key():
-    """Genera una clave privada RSA de 2048 bits."""
-    print("DEBUG [PKI]: Generando par de claves RSA. Longitud: 2048 bits (Estándar NIST actual).")
     return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 def save_key(key, filename):
-    """Guarda una clave privada en disco. Crea el directorio si no existe."""
-    directory = os.path.dirname(filename)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-        
     with open(filename, "wb") as f:
         f.write(key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption() 
+            encryption_algorithm=serialization.NoEncryption()
         ))
 
 def load_key(filename):
-    """Carga una clave privada desde disco."""
     with open(filename, "rb") as f:
         return serialization.load_pem_private_key(f.read(), password=None)
 
 def save_cert(cert, filename):
-    """Guarda un certificado X.509 en disco."""
-    directory = os.path.dirname(filename)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
     with open(filename, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
 def load_cert(filename):
-    """Carga un certificado X.509 desde disco."""
     with open(filename, "rb") as f:
         return x509.load_pem_x509_certificate(f.read())
 
+def load_crl():
+    if not os.path.exists(CRL_FILE):
+        return []
+    try:
+        with open(CRL_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_crl(revoked_list):
+    with open(CRL_FILE, 'w') as f:
+        json.dump(revoked_list, f, indent=4)
+
+def revoke_certificate(cert_pem):
+    """Añade el número de serie de un certificado a la CRL."""
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem)
+        serial = cert.serial_number
+        
+        crl = load_crl()
+        if serial not in crl:
+            crl.append(serial)
+            save_crl(crl)
+            print(f"DEBUG [PKI]: Certificado {serial} REVOCADO correctamente.")
+    except Exception as e:
+        print(f"ERROR [PKI]: Fallo al revocar certificado: {e}")
+
+def is_revoked(cert):
+    """Comprueba si un certificado está en la CRL."""
+    crl = load_crl()
+    return cert.serial_number in crl
+
 def setup_pki():
     """
-    Inicializa la infraestructura de clave pública (PKI).
+    Inicializa la PKI. 
+    Simula protección de Root CA: solo carga la clave raíz si es estrictamente necesario 
+    para firmar la Sub CA, luego la 'olvida'.
     """
-    ensure_pki_dir_exists() 
+    ensure_pki_dir_exists()
 
     if os.path.exists(ROOT_CERT_FILE) and os.path.exists(SUB_CERT_FILE):
         return
 
-    # 1. Crear Root CA
-    print("INFO: Creando Autoridad de Certificación Raíz...")
+    print("INFO: Generando PKI (Root CA offline + Sub CA online)...")
+
+    # 1. Generar Root CA (Operación sensible)
     root_key = generate_private_key()
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"UC3M"),
         x509.NameAttribute(NameOID.COMMON_NAME, u"UC3M Root CA"),
     ])
-    
-    root_cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
+    root_cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
         root_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
+    ).serial_number(x509.random_serial_number()).not_valid_before(
         datetime.datetime.now(datetime.timezone.utc)
     ).not_valid_after(
         datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
@@ -91,39 +104,33 @@ def setup_pki():
 
     save_key(root_key, ROOT_KEY_FILE)
     save_cert(root_cert, ROOT_CERT_FILE)
-
-    # 2. Crear Sub CA (Authority)
-    print("INFO: Creando Autoridad de Certificación Subordinada...")
+    
+    # 2. Generar Sub CA firmada por Root
     sub_key = generate_private_key()
     sub_subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"ES"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"UC3M"),
         x509.NameAttribute(NameOID.COMMON_NAME, u"UC3M Sub CA - Grados"),
     ])
-    
-    sub_cert = x509.CertificateBuilder().subject_name(
-        sub_subject
-    ).issuer_name(
-        root_cert.subject
-    ).public_key(
+    sub_cert = x509.CertificateBuilder().subject_name(sub_subject).issuer_name(root_cert.subject).public_key(
         sub_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
+    ).serial_number(x509.random_serial_number()).not_valid_before(
         datetime.datetime.now(datetime.timezone.utc)
     ).not_valid_after(
         datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1825)
     ).add_extension(
         x509.BasicConstraints(ca=True, path_length=0), critical=True,
-    ).sign(root_key, hashes.SHA256())
+    ).sign(root_key, hashes.SHA256()) # Firma con Root Key
 
     save_key(sub_key, SUB_KEY_FILE)
     save_cert(sub_cert, SUB_CERT_FILE)
+    
+    # "Borrado" de memoria de la clave raíz
+    del root_key 
+    print("INFO: Clave Root CA descargada de memoria (Seguridad Offline).")
 
 def issue_user_certificate(user_public_key, username, role):
-    """
-    Emite un certificado X.509 para un usuario, firmado por la Sub CA.
-    """
+    """Emite certificado de usuario usando solo la Sub CA."""
     setup_pki()
     
     sub_key = load_key(SUB_KEY_FILE)
@@ -136,15 +143,9 @@ def issue_user_certificate(user_public_key, username, role):
         x509.NameAttribute(NameOID.COMMON_NAME, username),
     ])
 
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        sub_cert.subject
-    ).public_key(
+    cert = x509.CertificateBuilder().subject_name(subject).issuer_name(sub_cert.subject).public_key(
         user_public_key
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
+    ).serial_number(x509.random_serial_number()).not_valid_before(
         datetime.datetime.now(datetime.timezone.utc)
     ).not_valid_after(
         datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
@@ -155,14 +156,14 @@ def issue_user_certificate(user_public_key, username, role):
     return cert.public_bytes(serialization.Encoding.PEM)
 
 def verify_certificate(cert_pem):
-    """
-    Verifica criptográficamente la firma de un certificado.
-    """
+    """Valida firma, fechas y ESTADO DE REVOCACIÓN (CRL)."""
     try:
         user_cert = x509.load_pem_x509_certificate(cert_pem)
         sub_cert = load_cert(SUB_CERT_FILE)
         
-        # Verificar la firma de la Sub CA
+        if is_revoked(user_cert):
+            raise Exception(f"Certificado REVOCADO (Serial: {user_cert.serial_number})")
+
         sub_cert.public_key().verify(
             user_cert.signature,
             user_cert.tbs_certificate_bytes,
@@ -170,12 +171,11 @@ def verify_certificate(cert_pem):
             user_cert.signature_hash_algorithm
         )
         
-        # Verificar validez temporal
         now = datetime.datetime.now(datetime.timezone.utc)
         if not (user_cert.not_valid_before_utc <= now <= user_cert.not_valid_after_utc):
-            raise Exception("Certificado fuera del periodo de validez")
+            raise Exception("Certificado caducado o aún no válido")
 
         return True
     except Exception as e:
-        print(f"ERROR PKI: Validación de certificado fallida: {e}")
+        print(f"ALERTA SEGURIDAD [PKI]: {e}")
         return False

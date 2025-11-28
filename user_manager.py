@@ -1,7 +1,8 @@
 import os
 import json
 import base64
-import pki_manager 
+import pki_manager
+import audit_log
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa 
 
@@ -16,7 +17,6 @@ class UserSession:
         self.certificate_pem = certificate_pem
 
 def save_users_db():
-    """Vuelca la base de datos de usuarios a disco en formato JSON (Base64)."""
     data_to_save = {}
     for username, data in db_users.items():
         data_to_save[username] = {
@@ -26,23 +26,15 @@ def save_users_db():
             'private_key_pem': base64.b64encode(data['private_key_pem']).decode('utf-8'),
             'certificate_pem': base64.b64encode(data['certificate_pem']).decode('utf-8')
         }
-    
-    try:
-        with open(DB_FILE, 'w') as f:
-            json.dump(data_to_save, f, indent=4)
-    except IOError as e:
-        print(f"Error I/O guardando usuarios: {e}")
+    with open(DB_FILE, 'w') as f:
+        json.dump(data_to_save, f, indent=4)
 
 def load_users_db():
-    """Carga usuarios desde JSON."""
     global db_users
-    if not os.path.exists(DB_FILE):
-        return
-
+    if not os.path.exists(DB_FILE): return
     try:
         with open(DB_FILE, 'r') as f:
             data_loaded = json.load(f)
-            
         for username, data in data_loaded.items():
             db_users[username] = {
                 'role': data['role'],
@@ -51,38 +43,33 @@ def load_users_db():
                 'private_key_pem': base64.b64decode(data['private_key_pem']),
                 'certificate_pem': base64.b64decode(data['certificate_pem'])
             }
-    except Exception as e:
-        print(f"Aviso: No se pudo cargar DB usuarios: {e}")
+    except Exception: pass
 
-# Cargar al inicio
 load_users_db()
 
 def register_user(username, password, role):
-    """
-    Registra usuario usando SHA-256 + Salt.
-    """
+    # Validación estricta
     if role not in ['profesor', 'alumno']:
-        raise ValueError(f"Rol '{role}' no válido. Solo se permite 'profesor' o 'alumno'.")
+        audit_log.log_event("Anon", "REGISTER", username, "FAIL_INVALID_ROLE")
+        raise ValueError(f"Rol '{role}' no válido.")
         
     if username in db_users:
+        audit_log.log_event("Anon", "REGISTER", username, "FAIL_USER_EXISTS")
         raise ValueError("El usuario ya existe.")
     
-    # 1. Hashing de contraseña (SHA-256 + Salt)
+    # Criptografía
     salt = os.urandom(16)
     digest = hashes.Hash(hashes.SHA256())
     digest.update(salt)              
     digest.update(password.encode()) 
     password_hash = digest.finalize()
     
-    # 2. Generar par de claves RSA (2048 bits)
-    print(f"DEBUG [User Manager]: Generando claves RSA-2048 para {username}.")
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_key = private_key.public_key()
     
-    # 3. Solicitar emisión de certificado a la PKI
+    # Certificado PKI
     certificate_pem = pki_manager.issue_user_certificate(public_key, username, role)
     
-    # 4. Cifrar clave privada
     private_key_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -90,57 +77,60 @@ def register_user(username, password, role):
     )
     
     db_users[username] = {
-        'salt': salt,
-        'hash': password_hash,
-        'role': role,
-        'private_key_pem': private_key_pem,
-        'certificate_pem': certificate_pem
+        'salt': salt, 'hash': password_hash, 'role': role,
+        'private_key_pem': private_key_pem, 'certificate_pem': certificate_pem
     }
     
     save_users_db()
-    print(f"Usuario '{username}' registrado correctamente (Rol: {role}).")
+    audit_log.log_event("System", "REGISTER_USER", username, "SUCCESS")
+    print(f"Usuario '{username}' registrado.")
 
 def login_user(username, password):
     if username not in db_users:
+        audit_log.log_event("Anon", "LOGIN", username, "FAIL_NOT_FOUND")
         raise ValueError("Usuario no encontrado.")
     
     user_data = db_users[username]
     
-    # 1. Verificar contraseña
+    # Verificar validez del certificado (Revocación)
+    if not pki_manager.verify_certificate(user_data['certificate_pem']):
+        audit_log.log_event(username, "LOGIN", "System", "FAIL_CERT_REVOKED")
+        raise ValueError("Acceso denegado: Su certificado ha sido REVOCADO o caducado.")
+
     salt = user_data['salt']
     stored_hash = user_data['hash']
     
     digest = hashes.Hash(hashes.SHA256())
     digest.update(salt)
     digest.update(password.encode())
-    computed_hash = digest.finalize()
+    if digest.finalize() != stored_hash:
+        audit_log.log_event(username, "LOGIN", "System", "FAIL_BAD_PASS")
+        raise ValueError("Contraseña incorrecta.")
     
-    if computed_hash != stored_hash:
-        raise ValueError("Credenciales inválidas (Password incorrecta).")
-    
-    # 2. Descifrar clave privada
     try:
         private_key = serialization.load_pem_private_key(
-            user_data['private_key_pem'],
-            password=password.encode()
+            user_data['private_key_pem'], password=password.encode()
         )
     except ValueError:
-        raise ValueError("Error interno: Fallo al descifrar clave privada.")
+        raise ValueError("Error clave privada.")
         
+    audit_log.log_event(username, "LOGIN", "System", "SUCCESS")
     return UserSession(username, user_data['role'], private_key, user_data['certificate_pem'])
 
-def get_user_certificate(username):
-    if username not in db_users:
-        raise ValueError("Usuario no existe.")
-    return db_users[username]['certificate_pem']
-
 def delete_user(username):
-    """
-    Elimina un usuario de la base de datos.
-    """
-    if username not in db_users:
-        raise ValueError("El usuario no existe.")
+    if username not in db_users: raise ValueError("Usuario no existe.")
     
+    # 1. Revocar certificado en la PKI
+    cert_pem = db_users[username]['certificate_pem']
+    pki_manager.revoke_certificate(cert_pem)
+    
+    # 2. Borrar de DB
     del db_users[username]
     save_users_db()
-    print(f"INFO: Usuario '{username}' eliminado del sistema.")
+    
+    audit_log.log_event("Admin", "DELETE_USER", username, "SUCCESS_REVOKED")
+    print(f"Usuario '{username}' eliminado y certificado revocado.")
+
+def get_user_certificate(username):
+    if username not in db_users: raise ValueError("Usuario no existe.")
+    return db_users[username]['certificate_pem']
