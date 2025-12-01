@@ -159,7 +159,7 @@ def modify_grade(prof_session, student_username, index, new_grade_str):
         raise ValueError("Nota no encontrada.")
 
     existing_entry = db_grades[student_username][index]
-    if existing_entry[4] != prof_session.username: 
+    if existing_entry[5] != prof_session.username: 
         raise PermissionError("No puedes modificar notas de otros.")
 
     try:
@@ -196,7 +196,7 @@ def delete_grade(prof_session, student_username, index):
         raise ValueError("Índice incorrecto.")
 
     entry = db_grades[student_username][index]
-    if entry[4] != prof_session.username: 
+    if entry[5] != prof_session.username: 
         raise PermissionError("No es tu nota.")
     
     del db_grades[student_username][index]

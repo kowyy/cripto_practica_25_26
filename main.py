@@ -93,21 +93,21 @@ def run_simulation():
             profesor_session, 
             "Adam", 
             "Criptografía", 
-            "9.5 (Sobresaliente)"
+            "7.2 (Notable)"
         )
         
         grade_system.add_grade(
             profesor_session, 
             "Adam", 
             "Redes", 
-            "7.2 (Notable)"
+            "8 (Notable Alto)"
         )
         
         grade_system.add_grade(
             profesor_session,
             "Adam",
-            "Seguridad Informática",
-            "8.7 (Notable Alto)"
+            "Arquitectura de Computadores",
+            "7 (Notable)"
         )
         
         print("\nCalificaciones guardadas.")

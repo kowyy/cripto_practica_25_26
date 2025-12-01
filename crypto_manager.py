@@ -1,4 +1,5 @@
 import os
+import re
 import datetime
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -129,3 +130,24 @@ def decrypt_grade_hybrid(encrypted_grade, encrypted_sym_key, nonce, private_key)
         return decrypted_data_bytes.decode('utf-8')
     except InvalidTag:
         raise ValueError("Error de integridad: los datos parecen haber sido modificados")
+
+def validate_password_strength(password):
+    """
+    Valida que la contraseña cumpla requisitos de seguridad
+    """
+    if len(password) < 8:
+        return False, "La contraseña debe tener al menos 8 caracteres"
+    
+    if not re.search(r'[A-Z]', password):
+        return False, "Debe contener al menos una mayúscula"
+    
+    if not re.search(r'[a-z]', password):
+        return False, "Debe contener al menos una minúscula"
+    
+    if not re.search(r'[0-9]', password):
+        return False, "Debe contener al menos un número"
+    
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return False, "Debe contener al menos un carácter especial"
+    
+    return True, "Contraseña válida"

@@ -3,6 +3,7 @@ import json
 import base64
 import pki_manager
 import audit_log
+import crypto_manager
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa 
 
@@ -106,6 +107,11 @@ def register_user(username, password, role):
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
     )
+
+    is_valid, message = crypto_manager.validate_password_strength(password)
+    if not is_valid:
+        audit_log.log_event("Anon", "REGISTER", username, "FAIL_WEAK_PASSWORD")
+        raise ValueError(f"Contraseña débil: {message}")
     
     db_users[username] = {
         'salt': salt, 
