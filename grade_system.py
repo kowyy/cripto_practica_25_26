@@ -10,16 +10,16 @@ DB_GRADES_FILE = "grades_db.json"
 db_grades = {} 
 
 def save_grades_db():
-    # Guardamos las notas asegurándonos de que no se corrompa el archivo si falla
     temp_file = DB_GRADES_FILE + ".tmp"
-    
     data_to_save = {}
+    
     for username, grades_list in db_grades.items():
         serializable_list = []
-        for (enc_grade, enc_key_student, nonce, signature, signer, timestamp) in grades_list:
+        for (enc_grade, enc_key_student, enc_key_prof, nonce, signature, signer, timestamp) in grades_list:
             serializable_list.append({
                 'enc_grade': base64.b64encode(enc_grade).decode('utf-8'),
-                'enc_key_student': base64.b64encode(enc_key_student).decode('utf-8'), 
+                'enc_key_student': base64.b64encode(enc_key_student).decode('utf-8'),
+                'enc_key_prof': base64.b64encode(enc_key_prof).decode('utf-8'),
                 'nonce': base64.b64encode(nonce).decode('utf-8'),
                 'signature': base64.b64encode(signature).decode('utf-8'),
                 'signer': signer,
@@ -30,68 +30,51 @@ def save_grades_db():
     try:
         with open(temp_file, 'w') as f:
             json.dump(data_to_save, f, indent=4)
-        
         os.replace(temp_file, DB_GRADES_FILE)
-        print("DEBUG: Base de datos de notas guardada.")
-        
+        print("DEBUG: Base de datos de notas guardada (Estructura Actualizada).")
     except IOError as e:
         print(f"Error al guardar notas: {e}")
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        if os.path.exists(temp_file): os.remove(temp_file)
 
 def load_grades_db():
-    # Cargamos las notas existentes
     global db_grades
-    
     if not os.path.exists(DB_GRADES_FILE):
-        print("INFO: No hay base de datos de notas, se crea una nueva.")
         return
     
     try:
         with open(DB_GRADES_FILE, 'r') as f:
             data = json.load(f)
-        
-        if not isinstance(data, dict):
-            raise ValueError("Formato incorrecto")
-        
-        for username, g_list in data.items():
-            if not isinstance(g_list, list):
-                continue
             
+        for username, g_list in data.items():
             restored = []
             for item in g_list:
                 try:
-                    timestamp = item.get('timestamp', "")
-                    
+                    enc_key_prof_b64 = item.get('enc_key_prof')
+                    enc_key_prof = base64.b64decode(enc_key_prof_b64) if enc_key_prof_b64 else None
+
                     restored.append((
                         base64.b64decode(item['enc_grade']),
                         base64.b64decode(item['enc_key_student']),
+                        enc_key_prof,
                         base64.b64decode(item['nonce']),
                         base64.b64decode(item['signature']),
                         item['signer'],
-                        timestamp
+                        item.get('timestamp', "")
                     ))
                 except Exception as e:
                     print(f"Nota corrupta ignorada: {e}")
-                    continue
-            
             db_grades[username] = restored
-        
         print(f"INFO: Notas cargadas.")
-        
     except Exception as e:
         print(f"Error al cargar notas: {e}")
 
 load_grades_db()
 
 def add_grade(prof_session, student_username, subject, grade):
-    # Añadimos una nota nueva, firmada y cifrada
     if prof_session.role != 'profesor':
-        audit_log.log_event(prof_session.username, "ADD_GRADE", student_username, "FAIL_UNAUTHORIZED")
         raise PermissionError("Solo profesores.")
     
     try:
-        # Verificamos que el usuario objetivo sea realmente un alumno
         role = user_manager.get_user_role(student_username)
         if role != 'alumno':
             print(f"Error: {student_username} tiene el rol '{role}', no es un alumno.")
@@ -109,31 +92,29 @@ def add_grade(prof_session, student_username, subject, grade):
 
     grade_data_str = f"Asignatura: {subject} | Calificación: {grade}"
     
-    print(f"DEBUG: Firmando nota...")
     signature, timestamp = crypto_manager.sign_data_with_timestamp(
         grade_data_str.encode('utf-8'), 
         prof_session.private_key
     )
     
-    print(f"DEBUG: Cifrando nota...")
-    enc_grade, enc_key_student, nonce = crypto_manager.encrypt_grade_for_student(
+    enc_grade, enc_key_student, enc_key_prof, nonce = crypto_manager.encrypt_grade_entry(
         grade_data_str, 
-        student_cert_pem
+        user_manager.get_user_certificate(student_username),
+        prof_session.certificate_pem
     )
     
     if student_username not in db_grades:
         db_grades[student_username] = []
     
     db_grades[student_username].append(
-        (enc_grade, enc_key_student, nonce, signature, prof_session.username, timestamp)
+        (enc_grade, enc_key_student, enc_key_prof, nonce, signature, prof_session.username, timestamp)
     )
     
     save_grades_db()
     audit_log.log_event(prof_session.username, "ADD_GRADE", student_username, "SUCCESS")
-    print(f"Nota guardada con fecha {timestamp}.")
+    print(f"Nota guardada y cifrada para ambos.")
 
 def view_grades_professor(prof_session, student_username):
-    # El profesor ve las notas que puso, pero no puede descifrarlas
     if prof_session.role != 'profesor':
         raise PermissionError("Solo profesores.")
     
@@ -141,19 +122,31 @@ def view_grades_professor(prof_session, student_username):
         print(f"No hay notas para {student_username}.")
         return []
 
-    print(f"\nNotas de {student_username} (Vista Profesor)")
+    print(f"\nNotas de {student_username} (Vista Profesor - Desencriptada)")
     
     visible_grades = []
     for i, entry in enumerate(db_grades[student_username]):
-        (enc_grade, enc_key_student, nonce, signature, signer, timestamp) = entry
+        (enc_grade, enc_key_student, enc_key_prof, nonce, signature, signer, timestamp) = entry
         
         if signer == prof_session.username:
-            print(f"[{i}] Firmada por: {signer} en {timestamp} (Cifrada)")
-            visible_grades.append((i, signer, timestamp))
-    
-    if not visible_grades:
-        print("No has puesto notas a este alumno.")
-    
+            try:
+                content = "Contenido no disponible (Formato antiguo)"
+                
+                if enc_key_prof:
+                    content = crypto_manager.decrypt_grade_hybrid(
+                        enc_grade, 
+                        enc_key_prof,
+                        nonce, 
+                        prof_session.private_key
+                    )
+                
+                print(f"[{i}] {content}")
+                print(f"    Firma válida fecha: {timestamp}")
+                visible_grades.append((i, signer, timestamp))
+                
+            except Exception as e:
+                print(f"[{i}] Error al descifrar nota propia: {e}")
+
     return visible_grades
 
 def modify_grade(prof_session, student_username, index, new_grade_str):
@@ -182,13 +175,14 @@ def modify_grade(prof_session, student_username, index, new_grade_str):
         prof_session.private_key
     )
     
-    enc_grade, enc_key_student, nonce = crypto_manager.encrypt_grade_for_student(
+    enc_grade, enc_key_student, enc_key_prof, nonce = crypto_manager.encrypt_grade_entry(
         new_grade_str, 
-        student_cert_pem
+        student_cert_pem,
+        prof_session.certificate_pem 
     )
 
     db_grades[student_username][index] = (
-        enc_grade, enc_key_student, nonce, signature, prof_session.username, timestamp
+        enc_grade, enc_key_student, enc_key_prof, nonce, signature, prof_session.username, timestamp
     )
     
     save_grades_db()
@@ -224,7 +218,7 @@ def view_my_grades(student_session):
         
     print(f"\nBoletín de {u_name}")
     for i, entry in enumerate(db_grades[u_name]):
-        (enc_grade, enc_key_student, nonce, signature, signer, timestamp) = entry
+        (enc_grade, enc_key_student, enc_key_prof, nonce, signature, signer, timestamp) = entry
         try:
             grade_str = crypto_manager.decrypt_grade_hybrid(
                 enc_grade, enc_key_student, nonce, student_session.private_key

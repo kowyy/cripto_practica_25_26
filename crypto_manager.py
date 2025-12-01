@@ -11,7 +11,6 @@ def get_timestamp():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 def validate_timestamp(timestamp_str, max_age_days=365):
-    # Comprobamos que la fecha no sea futura ni demasiado antigua para evitar problemas de seguridad
     try:
         timestamp = datetime.datetime.fromisoformat(timestamp_str)
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -74,19 +73,19 @@ def get_public_key_from_cert(cert_pem):
     cert = x509.load_pem_x509_certificate(cert_pem)
     return cert.public_key()
 
-def encrypt_grade_for_student(grade_data_str, student_cert_pem):
-    # Ciframos la nota para que solo el alumno pueda leerla usando un esquema híbrido
+def encrypt_grade_entry(grade_data_str, student_cert_pem, prof_cert_pem):
+    # Obtenemos las claves públicas de ambos destinatarios
     student_pub_key = get_public_key_from_cert(student_cert_pem)
+    prof_pub_key = get_public_key_from_cert(prof_cert_pem)
     
-    # Creamos una clave temporal AES para cifrar los datos
+    # Generamos la clave simétrica (AES) efímera una sola vez
     sym_key = AESGCM.generate_key(bit_length=256)
     aesgcm = AESGCM(sym_key)
     nonce = os.urandom(12)
     
-    # Ciframos el texto de la nota
     encrypted_grade = aesgcm.encrypt(nonce, grade_data_str.encode('utf-8'), None)
     
-    # Ciframos la clave AES con la clave pública del alumno para enviársela de forma segura
+    # Encapsulamos la clave AES para el alumno
     enc_key_student = student_pub_key.encrypt(
         sym_key,
         padding.OAEP(
@@ -95,12 +94,21 @@ def encrypt_grade_for_student(grade_data_str, student_cert_pem):
             label=None
         )
     )
+
+    # Encapsulamos la misma clave AES para el profesor
+    enc_key_prof = prof_pub_key.encrypt(
+        sym_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()), 
+            algorithm=hashes.SHA256(), 
+            label=None
+        )
+    )
     
-    print("DEBUG: Datos cifrados correctamente")
-    return encrypted_grade, enc_key_student, nonce
+    print("DEBUG: Datos cifrados para Alumno y Profesor (Multi-Recipient).")
+    return encrypted_grade, enc_key_student, enc_key_prof, nonce
 
 def decrypt_grade_hybrid(encrypted_grade, encrypted_sym_key, nonce, private_key):
-    # Proceso inverso: desciframos la clave AES y luego la nota
     try:
         # Recuperamos la clave simétrica usando la clave privada RSA
         sym_key = private_key.decrypt(

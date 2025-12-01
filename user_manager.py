@@ -69,7 +69,6 @@ def load_users_db():
     except Exception as e:
         print(f"Error cargando usuarios: {e}")
 
-# Ejecutamos la carga inicial
 load_users_db()
 
 def register_user(username, password, role):
@@ -85,7 +84,7 @@ def register_user(username, password, role):
     
     print(f"INFO: Registrando a {username}...")
     
-    # Creamos el hash de la contraseña con sal
+    # Creamos el hash de la contraseña con salt
     salt = os.urandom(16)
     digest = hashes.Hash(hashes.SHA256())
     digest.update(salt)              

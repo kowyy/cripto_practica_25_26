@@ -48,7 +48,6 @@ def run_simulation():
     
     print("\nSimulación automática del sistema")
     
-    # Primero limpiamos todo
     reset_system()
     
     print("\nFase de registro y generación de claves")
@@ -64,7 +63,7 @@ def run_simulation():
         
         print("\nRegistrando al alumno...")
         user_manager.register_user(
-            "Adam Kowalczyk", 
+            "Adam", 
             "AlumnoSeguro456!", 
             "alumno"
         )
@@ -92,21 +91,21 @@ def run_simulation():
         
         grade_system.add_grade(
             profesor_session, 
-            "Adam Kowalczyk", 
+            "Adam", 
             "Criptografía", 
             "9.5 (Sobresaliente)"
         )
         
         grade_system.add_grade(
             profesor_session, 
-            "Adam Kowalczyk", 
+            "Adam", 
             "Redes", 
             "7.2 (Notable)"
         )
         
         grade_system.add_grade(
             profesor_session,
-            "Adam Kowalczyk",
+            "Adam",
             "Seguridad Informática",
             "8.7 (Notable Alto)"
         )
@@ -123,7 +122,7 @@ def run_simulation():
     try:
         print("\nIniciando sesión del alumno...")
         alumno_session = user_manager.login_user(
-            "Adam Kowalczyk", 
+            "Adam", 
             "AlumnoSeguro456!"
         )
         
@@ -140,14 +139,14 @@ def run_simulation():
     
     print("\nPrueba: Login con contraseña mal")
     try:
-        user_manager.login_user("Adam Kowalczyk", "contraseña_erronea")
+        user_manager.login_user("Adam", "contraseña_erronea")
         print("Fallo: El sistema debería haber bloqueado el acceso")
     except ValueError as e:
         print(f"Correcto: Acceso bloqueado. Mensaje: {e}")
     
     print("\nPrueba: Alumno intenta poner notas")
     try:
-        alumno_session_test = user_manager.login_user("Adam Kowalczyk", "AlumnoSeguro456!")
+        alumno_session_test = user_manager.login_user("Adam", "AlumnoSeguro456!")
         grade_system.add_grade(
             alumno_session_test, 
             "Jose Maria de Fuentes", 
@@ -177,7 +176,6 @@ def run_simulation():
     print("\nSimulación finalizada")
 
 def show_menu():
-    # Menú principal de la aplicación
     print("\nSistema de Gestión de Notas")
     print("Opciones disponibles:")
     print("1. Ejecutar simulación automática")

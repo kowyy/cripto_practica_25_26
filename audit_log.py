@@ -151,7 +151,7 @@ def search_logs(actor=None, action=None, target=None, status=None):
         print(f"Error buscando: {e}")
 
 def clear_audit_log():
-    # Borramos el log (solo para pruebas)
+    # Borramos el log
     try:
         if os.path.exists(AUDIT_FILE):
             os.remove(AUDIT_FILE)

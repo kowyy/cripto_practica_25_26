@@ -15,7 +15,6 @@ SUB_CERT_FILE = os.path.join(PKI_DIR, "sub_ca_cert.pem")
 CRL_FILE = os.path.join(PKI_DIR, "crl.json")
 
 def ensure_pki_dir_exists():
-    # Nos aseguramos de que la carpeta de claves exista
     if not os.path.exists(PKI_DIR):
         os.makedirs(PKI_DIR)
         print(f"INFO: Directorio {PKI_DIR} creado.")
