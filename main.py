@@ -2,93 +2,225 @@ import os
 import shutil
 import user_manager
 import grade_system
+import audit_log
 
 def reset_system():
-    """
-    Borra la base de datos y la PKI para iniciar una simulación limpia.
-    """
-    files_to_remove = ["users_db.json", "grades_db.json"]
+    # Esta función borra todos los archivos generados para empezar de cero las pruebas
+    files_to_remove = [
+        "users_db.json", 
+        "users_db.json.tmp",
+        "grades_db.json",
+        "grades_db.json.tmp",
+        "audit_system.log",
+        "audit_system.hash"
+    ]
+    
     dirs_to_remove = ["pki_store"]
     
-    print("--- LIMPIEZA DE ENTORNO (RESET) ---")
+    print("\nIniciando limpieza del sistema...")
     
-    # 1. Limpiar Disco
-    for f in files_to_remove:
-        if os.path.exists(f):
-            os.remove(f)
-            print(f"Eliminado: {f}")
-            
-    for d in dirs_to_remove:
-        if os.path.exists(d):
-            shutil.rmtree(d)
-            print(f"Eliminado directorio: {d}")
+    # Borramos los archivos
+    for filename in files_to_remove:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+                print(f"Archivo eliminado: {filename}")
+            except Exception as e:
+                print(f"No se pudo eliminar {filename}: {e}")
+    
+    # Borramos los directorios
+    for dirname in dirs_to_remove:
+        if os.path.exists(dirname):
+            try:
+                shutil.rmtree(dirname)
+                print(f"Directorio eliminado: {dirname}")
+            except Exception as e:
+                print(f"No se pudo eliminar {dirname}: {e}")
 
-    # 2. Limpiar Memoria RAM
-    user_manager.db_users = {}
-    grade_system.db_grades = {}
-    print("Memoria de módulos purgada.")
-    
-    print("-----------------------------------")
+    # Limpiamos las variables en memoria
+    user_manager.db_users.clear()
+    grade_system.db_grades.clear()
+    print("Memoria limpiada.")
+    print("Sistema reiniciado correctamente.\n")
 
 def run_simulation():
-    """
-    Ejecuta una simulación completa del flujo de la aplicación con PKI y Persistencia.
-    """
-    # 1. Limpiar entorno previo para demostrar la creación de la PKI
+    # Ejecutamos una demostración automática de todo el flujo del sistema
+    
+    print("\nSimulación automática del sistema")
+    
+    # Primero limpiamos todo
     reset_system()
-
-    print("-> INICIO DE LA SIMULACIÓN")
-
-    # 2. Registro (Aquí se verá la emisión de certificados X.509)
-    print("\n[!] Registrando usuarios en la Autoridad de Certificación...")
+    
+    print("\nFase de registro y generación de claves")
+    
+    # Registramos a los usuarios de prueba
     try:
-        user_manager.register_user("Jose Maria de Fuentes", "PassProfesor123!", "profesor")
-        user_manager.register_user("Adam Kowalczyk", "PassAlumno456!", "alumno")
-    except ValueError as e:
-        print(f"ERROR: fallo de registro {e}")
-
-    # 3. Flujo del Profesor (Firma y Cifrado)
-    print("\n-> Intento de Login y Calificación (Profesor)")
-    try:
-        # Login (carga certificado y clave privada)
-        profesor_session = user_manager.login_user("Jose Maria de Fuentes", "PassProfesor123!")
+        print("\nRegistrando al profesor...")
+        user_manager.register_user(
+            "Jose Maria de Fuentes", 
+            "ProfesorSeguro123!", 
+            "profesor"
+        )
         
-        # Añadir notas (Firma Digital RSA-PSS + Cifrado Híbrido)
-        grade_system.add_grade(profesor_session, "Adam Kowalczyk", "Criptografía", "9.5 (Sobresaliente)")
-        grade_system.add_grade(profesor_session, "Adam Kowalczyk", "Redes", "7.2 (Notable)")
+        print("\nRegistrando al alumno...")
+        user_manager.register_user(
+            "Adam Kowalczyk", 
+            "AlumnoSeguro456!", 
+            "alumno"
+        )
+        
+        print("\nUsuarios registrados y certificados emitidos.")
+        
+    except ValueError as e:
+        print(f"\nError en el registro: {e}")
+        return
+    except Exception as e:
+        print(f"\nError inesperado: {e}")
+        return
+    
+    # El profesor entra y pone notas
+    print("\nFase del profesor: Firmar y cifrar notas")
+    
+    try:
+        print("\nIniciando sesión del profesor...")
+        profesor_session = user_manager.login_user(
+            "Jose Maria de Fuentes", 
+            "ProfesorSeguro123!"
+        )
+        
+        print("\nAñadiendo calificaciones...")
+        
+        grade_system.add_grade(
+            profesor_session, 
+            "Adam Kowalczyk", 
+            "Criptografía", 
+            "9.5 (Sobresaliente)"
+        )
+        
+        grade_system.add_grade(
+            profesor_session, 
+            "Adam Kowalczyk", 
+            "Redes", 
+            "7.2 (Notable)"
+        )
+        
+        grade_system.add_grade(
+            profesor_session,
+            "Adam Kowalczyk",
+            "Seguridad Informática",
+            "8.7 (Notable Alto)"
+        )
+        
+        print("\nCalificaciones guardadas.")
         
     except Exception as e:
-        print(f"Fallo en el flujo del profesor: {e}")
-
-    # 4. Flujo del Alumno (Verificación de Firma y PKI)
-    print("\n-> Intento de Login y Consulta (Alumno)")
+        print(f"\nError en la fase del profesor: {e}")
+        return
+    
+    # El alumno entra y ve sus notas
+    print("\nFase del alumno: Verificar firmas y descifrar")
+    
     try:
-        # Login
-        alumno_session = user_manager.login_user("Adam Kowalczyk", "PassAlumno456!")
+        print("\nIniciando sesión del alumno...")
+        alumno_session = user_manager.login_user(
+            "Adam Kowalczyk", 
+            "AlumnoSeguro456!"
+        )
         
-        # Ver notas (Validación de Certificados y Firmas)
+        print("\nConsultando notas...")
+        
         grade_system.view_my_grades(alumno_session)
         
     except Exception as e:
-        print(f"Fallo en el flujo del alumno: {e}")
-
-    # 5. Pruebas de Seguridad (Errores esperados)
-    print("\n-> Prueba de Seguridad: Login con contraseña incorrecta")
+        print(f"\nError en la fase del alumno: {e}")
+        return
+    
+    # Probamos que la seguridad funciona forzando errores
+    print("\nFase de pruebas de seguridad")
+    
+    print("\nPrueba: Login con contraseña mal")
     try:
         user_manager.login_user("Adam Kowalczyk", "contraseña_erronea")
+        print("Fallo: El sistema debería haber bloqueado el acceso")
     except ValueError as e:
-        print(f"  [OK] El sistema bloqueó el acceso: {e}")
-
-    print("\n-> Prueba de Seguridad: Alumno intenta firmar nota (Falsificación)")
+        print(f"Correcto: Acceso bloqueado. Mensaje: {e}")
+    
+    print("\nPrueba: Alumno intenta poner notas")
     try:
-        alumno_session_fail = user_manager.login_user("Adam Kowalczyk", "PassAlumno456!")
-        grade_system.add_grade(alumno_session_fail, "Jose Maria de Fuentes", "Hackeo", "10.0")
+        alumno_session_test = user_manager.login_user("Adam Kowalczyk", "AlumnoSeguro456!")
+        grade_system.add_grade(
+            alumno_session_test, 
+            "Jose Maria de Fuentes", 
+            "Hackeo", 
+            "10.0"
+        )
+        print("Fallo: El sistema permitió la acción")
     except PermissionError as e:
-        print(f"  [OK] El sistema denegó la acción: {e}")
+        print(f"Correcto: Acción denegada. Mensaje: {e}")
     except Exception as e:
-        print(f"Fallo inesperado: {e}")
-        
-    print("\nFIN DE LA SIMULACIÓN")
+        print(f"Resultado inesperado: {e}")
+    
+    print("\nPrueba: Contraseña débil")
+    try:
+        user_manager.register_user("Usuario Test", "123", "alumno")
+        print("Fallo: Se aceptó una contraseña débil")
+    except ValueError as e:
+        print(f"Correcto: Contraseña rechazada. Mensaje: {e}")
+    
+    print("\nPrueba: Integridad del log")
+    is_valid = audit_log.verify_audit_integrity()
+    if is_valid:
+        print("Correcto: El log está íntegro")
+    else:
+        print("Alerta: El log parece modificado")
+    
+    print("\nSimulación finalizada")
+
+def show_menu():
+    # Menú principal de la aplicación
+    print("\nSistema de Gestión de Notas")
+    print("Opciones disponibles:")
+    print("1. Ejecutar simulación automática")
+    print("2. Modo interactivo manual")
+    print("3. Ver registros de auditoría")
+    print("4. Reiniciar todo el sistema")
+    print("5. Salir")
 
 if __name__ == "__main__":
-    run_simulation()
+    try:
+        while True:
+            show_menu()
+            choice = input("\nElija una opción: ").strip()
+            
+            if choice == '1':
+                run_simulation()
+                input("\nPulse Enter para seguir...")
+                
+            elif choice == '2':
+                print("\nAbriendo modo interactivo...")
+                import interactive_test
+                interactive_test.run_interactive_session()
+                
+            elif choice == '3':
+                audit_log.read_logs()
+                input("\nPulse Enter para seguir...")
+                
+            elif choice == '4':
+                confirm = input("\nSeguro que quiere borrar todo el sistema? (s/n): ")
+                if confirm.lower() == 's':
+                    reset_system()
+                    input("\nPulse Enter para seguir...")
+                else:
+                    print("Cancelado.")
+                    
+            elif choice == '5':
+                print("\nAdiós.")
+                break
+                
+            else:
+                print("\nOpción no válida.")
+    
+    except KeyboardInterrupt:
+        print("\nSaliendo...")
+    except Exception as e:
+        print(f"\nError crítico: {e}")
