@@ -207,18 +207,35 @@ def modify_grade(prof_session, student_username, index, new_grade_str):
     print("Nota modificada correctamente.")
 
 def delete_grade(prof_session, student_username, index):
-    if prof_session.role != 'profesor': raise PermissionError("Solo profesores.")
+    if prof_session.role != 'profesor': 
+        raise PermissionError("Solo profesores.")
     
     if student_username not in db_grades or index >= len(db_grades[student_username]):
         raise ValueError("Índice incorrecto.")
 
     entry = db_grades[student_username][index]
-    if entry[5] != prof_session.username: 
+    if entry[5] != prof_session.username:
         raise PermissionError("No es tu nota.")
+    
+    deleted_grade_str = "Contenido no disponible"
+    try:
+        (enc_grade, _, enc_key_prof, nonce, _, _, _) = entry
+        if enc_key_prof:
+            deleted_grade_str = crypto_manager.decrypt_grade_hybrid(
+                enc_grade,
+                enc_key_prof,
+                nonce,
+                prof_session.private_key
+            )
+    except Exception:
+        pass
     
     del db_grades[student_username][index]
     save_grades_db()
-    audit_log.log_event(prof_session.username, "DELETE_GRADE", student_username, "SUCCESS")
+    
+    delete_detail = f"{student_username} | BORRADA: [{deleted_grade_str}]"
+    audit_log.log_event(prof_session.username, "DELETE_GRADE", delete_detail, "SUCCESS")
+    
     print("Nota borrada.")
 
 def delete_all_grades_of_student(student_username):

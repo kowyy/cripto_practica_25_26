@@ -71,7 +71,7 @@ def log_event(actor, action, target, status="SUCCESS"):
     entry = (f"[{timestamp}] "
              f"Actor: {actor:20} | "
              f"Action: {action:20} | "
-             f"Target: {target:20} | "
+             f"Target: {target} | "
              f"Status: {status}\n")
     
     try:
