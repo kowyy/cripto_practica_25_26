@@ -2,4 +2,5 @@ pki_store/**
 grades_db.json
 users_db.json
 __pycache__/**
-audit_system.log
+audit_system.*
+
