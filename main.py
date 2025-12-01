@@ -212,7 +212,7 @@ if __name__ == "__main__":
                     print("Cancelado.")
                     
             elif choice == '5':
-                print("\nAdiós.")
+                print("\nEjecución cancelada.")
                 break
                 
             else:

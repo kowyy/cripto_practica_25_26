@@ -77,7 +77,7 @@ def add_grade(prof_session, student_username, subject, grade):
     try:
         role = user_manager.get_user_role(student_username)
         if role != 'alumno':
-            print(f"Error: {student_username} tiene el rol '{role}', no es un alumno.")
+            print(f"Error: {student_username} no es un alumno.")
             audit_log.log_event(prof_session.username, "ADD_GRADE", student_username, "FAIL_INVALID_ROLE")
             return
             
@@ -111,7 +111,8 @@ def add_grade(prof_session, student_username, subject, grade):
     )
     
     save_grades_db()
-    audit_log.log_event(prof_session.username, "ADD_GRADE", student_username, "SUCCESS")
+    grade_detail = f"{student_username} | {subject}: {grade}"
+    audit_log.log_event(prof_session.username, "ADD_GRADE", grade_detail, "SUCCESS")
     print(f"Nota guardada y cifrada para ambos.")
 
 def view_grades_professor(prof_session, student_username):
@@ -159,8 +160,21 @@ def modify_grade(prof_session, student_username, index, new_grade_str):
         raise ValueError("Nota no encontrada.")
 
     existing_entry = db_grades[student_username][index]
-    if existing_entry[5] != prof_session.username: 
+    if existing_entry[5] != prof_session.username:
         raise PermissionError("No puedes modificar notas de otros.")
+
+    old_grade_str = "Contenido previo no disponible"
+    try:
+        (old_enc_grade, _, old_enc_key_prof, old_nonce, _, _, _) = existing_entry
+        if old_enc_key_prof:
+            old_grade_str = crypto_manager.decrypt_grade_hybrid(
+                old_enc_grade,
+                old_enc_key_prof,
+                old_nonce,
+                prof_session.private_key
+            )
+    except Exception as e:
+        print(f"Advertencia: No se pudo leer la nota anterior: {e}")
 
     try:
         student_cert_pem = user_manager.get_user_certificate(student_username)
@@ -186,7 +200,10 @@ def modify_grade(prof_session, student_username, index, new_grade_str):
     )
     
     save_grades_db()
-    audit_log.log_event(prof_session.username, "MODIFY_GRADE", student_username, "SUCCESS")
+    
+    change_detail = f"{student_username} | ANTES: [{old_grade_str}] → AHORA: [{new_grade_str}]"
+    audit_log.log_event(prof_session.username, "MODIFY_GRADE", change_detail, "SUCCESS")
+    
     print("Nota modificada correctamente.")
 
 def delete_grade(prof_session, student_username, index):

@@ -185,14 +185,12 @@ def run_interactive_session():
         elif session.role == 'alumno':
             print(f"\nAlumno: {session.username}")
             print("1. Ver notas")
-            print("2. Auditoría")
-            print("3. Cerrar sesión")
+            print("2. Cerrar sesión")
             
             opt = input("Opción: ").strip()
             
             if opt == '1': grade_system.view_my_grades(session)
-            elif opt == '2': handle_view_audit_log()
-            elif opt == '3': session = None
+            elif opt == '2': session = None
 
 if __name__ == "__main__":
     try:
