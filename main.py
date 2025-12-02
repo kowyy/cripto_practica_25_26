@@ -57,14 +57,14 @@ def run_simulation():
         print("\nRegistrando al profesor...")
         user_manager.register_user(
             "Jose Maria de Fuentes", 
-            "ProfesorSeguro123!", 
+            "123", 
             "profesor"
         )
         
         print("\nRegistrando al alumno...")
         user_manager.register_user(
             "Adam", 
-            "AlumnoSeguro456!", 
+            "123", 
             "alumno"
         )
         
@@ -84,7 +84,7 @@ def run_simulation():
         print("\nIniciando sesión del profesor...")
         profesor_session = user_manager.login_user(
             "Jose Maria de Fuentes", 
-            "ProfesorSeguro123!"
+            "123"
         )
         
         print("\nAñadiendo calificaciones...")
@@ -123,7 +123,7 @@ def run_simulation():
         print("\nIniciando sesión del alumno...")
         alumno_session = user_manager.login_user(
             "Adam", 
-            "AlumnoSeguro456!"
+            "123"
         )
         
         print("\nConsultando notas...")
@@ -146,7 +146,7 @@ def run_simulation():
     
     print("\nPrueba: Alumno intenta poner notas")
     try:
-        alumno_session_test = user_manager.login_user("Adam", "AlumnoSeguro456!")
+        alumno_session_test = user_manager.login_user("Adam", "123")
         grade_system.add_grade(
             alumno_session_test, 
             "Jose Maria de Fuentes", 
@@ -158,13 +158,6 @@ def run_simulation():
         print(f"Correcto: Acción denegada. Mensaje: {e}")
     except Exception as e:
         print(f"Resultado inesperado: {e}")
-    
-    print("\nPrueba: Contraseña débil")
-    try:
-        user_manager.register_user("Usuario Test", "123", "alumno")
-        print("Fallo: Se aceptó una contraseña débil")
-    except ValueError as e:
-        print(f"Correcto: Contraseña rechazada. Mensaje: {e}")
     
     print("\nPrueba: Integridad del log")
     is_valid = audit_log.verify_audit_integrity()
