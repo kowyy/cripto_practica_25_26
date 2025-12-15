@@ -242,32 +242,53 @@ def issue_user_certificate(user_public_key, username, role):
     return cert.public_bytes(serialization.Encoding.PEM)
 
 def verify_certificate(cert_pem):
-    # Comprobamos que el certificado sea válido y no esté revocado
     try:
         user_cert = x509.load_pem_x509_certificate(cert_pem)
         sub_cert = load_cert(SUB_CERT_FILE)
+        root_cert = load_cert(ROOT_CERT_FILE)
         
-        # Consultamos la lista de revocación
+        # Check revocation
         revoked, revoked_at = is_revoked(user_cert)
         if revoked:
             raise Exception(f"Certificado revocado en fecha {revoked_at}")
-
-        # Verificamos la firma criptográfica
+        
+        # Verify User Cert is signed by Sub CA
         sub_cert.public_key().verify(
             user_cert.signature,
             user_cert.tbs_certificate_bytes,
             padding.PKCS1v15(), 
             user_cert.signature_hash_algorithm
         )
+        print(f"DEBUG: User cert signed by Sub CA ✓")
         
-        # Comprobamos las fechas de validez
+        # Verify Sub CA is signed by Root CA
+        root_cert.public_key().verify(
+            sub_cert.signature,
+            sub_cert.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            sub_cert.signature_hash_algorithm
+        )
+        print(f"DEBUG: Sub CA signed by Root CA ✓")
+        
+        # Verify Root CA is self-signed (trust anchor)
+        root_cert.public_key().verify(
+            root_cert.signature,
+            root_cert.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            root_cert.signature_hash_algorithm
+        )
+        print(f"DEBUG: Root CA self-signed ✓")
+        
+        # Check validity dates for entire chain
         now = datetime.datetime.now(datetime.timezone.utc)
-        if not (user_cert.not_valid_before_utc <= now <= user_cert.not_valid_after_utc):
-            raise Exception("Certificado caducado")
-
-        print(f"DEBUG: Certificado válido")
+        
+        for cert, name in [(user_cert, "User"), (sub_cert, "Sub CA"), (root_cert, "Root CA")]:
+            if not (cert.not_valid_before_utc <= now <= cert.not_valid_after_utc):
+                raise Exception(f"{name} certificate expired or not yet valid")
+        
+        print(f"DEBUG: Full certificate chain verified ✓")
         return True
         
     except Exception as e:
-        print(f"Alerta de seguridad: {e}")
+        print(f"Certificate verification failed: {e}")
         return False
